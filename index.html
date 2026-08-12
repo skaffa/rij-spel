@@ -165,18 +165,17 @@
 
         <div id="screen-start">
             <h1>RIJ SPEL</h1>
-            <p>Spring met je motor over de bierkratten heen! Tik op het scherm om te springen.</p>
+            <p>Spring met je KTM over de kratten. Pak de flesjes voor bonuspunten (+5)!</p>
             <button class="btn" id="start-btn">GAS EROP!</button>
         </div>
 
         <div id="screen-gameover">
             <h1>CRASH!</h1>
-            <p>Je haalde <span id="final-score">0</span> kratten!</p>
+            <p>Score: <span id="final-score">0</span> punten!</p>
             <button class="btn" id="restart-btn">NOG EEN KEER</button>
 
             <div class="beer-container">
                 <p class="beer-text">"Highscore gehaald? Sla overmorgen die rij over en gun de maker een koud biertje." 🍻</p>
-                <!-- Dynamische Tikkie link op basis van GET argument -->
                 <a href="#" id="beer-link" target="_blank" class="beer-btn">👉 TRAKTEER EEN BIERTJE 👈</a>
                 <div class="hint">(Opent in nieuw tabblad)</div>
             </div>
@@ -184,39 +183,33 @@
     </div>
 
     <script>
-        // --- DYNAMISCHE TIKKIE LOGICA (GET ARGUMENTEN) ---
+        // --- AFBEELDINGEN INLADEN ---
+        const imgMotor = new Image(); imgMotor.src = 'ktm.png';
+        const imgCrate = new Image(); imgCrate.src = 'grolsch.png';
+        const imgBottle = new Image(); imgBottle.src = 'fles.png';
+
+        // --- DYNAMISCHE TIKKIE LOGICA ---
         const tikkieLinks = {
-            'shirt': 'https://tikkie.me/YOUR_SHIRT_LINK_HERE',     // Vervang met Tikkie link voor T-shirt
-            'sticker': 'https://tikkie.me/YOUR_STICKER_LINK_HERE' // Vervang met Tikkie link voor Stickers
+            'shirt': 'https://tikkie.me/YOUR_SHIRT_LINK_HERE',
+            'sticker': 'https://tikkie.me/YOUR_STICKER_LINK_HERE'
         };
-
         const urlParams = new URLSearchParams(window.location.search);
-        const source = urlParams.get('source') || 'shirt'; // Standaard 'shirt' als er niks staat
-        
+        const source = urlParams.get('source') || 'shirt'; 
         const beerLinkEl = document.getElementById('beer-link');
-        if (tikkieLinks[source]) {
-            beerLinkEl.href = tikkieLinks[source];
-        } else {
-            beerLinkEl.href = tikkieLinks['shirt']; // Fallback
-        }
+        beerLinkEl.href = tikkieLinks[source] || tikkieLinks['shirt'];
 
-        // --- SERVICE WORKER REGISTRATIE (OFFLINE CACHING) ---
+        // --- SERVICE WORKER ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js')
-                    .then(reg => console.log('Service Worker actief voor offline gebruik!', reg.scope))
-                    .catch(err => console.error('Service Worker registratie mislukt:', err));
+                navigator.serviceWorker.register('sw.js').catch(() => {});
             });
         }
 
-        // --- GAME LOGIC ---
+        // --- GAME LOGICA ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        
         const startScreen = document.getElementById('screen-start');
         const gameOverScreen = document.getElementById('screen-gameover');
-        const startBtn = document.getElementById('start-btn');
-        const restartBtn = document.getElementById('restart-btn');
         const scoreEl = document.getElementById('score');
         const highscoreEl = document.getElementById('highscore');
         const finalScoreEl = document.getElementById('final-score');
@@ -229,22 +222,32 @@
 
         let gameState = 'START'; 
         let score = 0;
-        let highscore = localStorage.getItem('zc_highscore') || 0;
+        let highscore = localStorage.getItem('zc_highscore_v3') || 0;
         highscoreEl.textContent = highscore;
 
         const gravity = 0.6;
         const groundHeight = 0.3; 
+        
+        // Entiteiten
+        let obstacles = [];
+        let bottles = [];
+        let particles = [];
+        let spawnTimer = 0;
+        let gameSpeed = 5;
+        let frameCount = 0; // Voor sinus animaties
 
         const player = {
-            x: 50,
+            x: 40,
             y: 0,
             vy: 0,
-            size: 40,
+            width: 70, // Breedte van de motor PNG
+            height: 45, // Hoogte van de motor PNG
+            angle: 0,
             isJumping: false,
-            emoji: '🏍️',
             init() {
-                this.y = canvas.height * (1 - groundHeight) - this.size;
+                this.y = canvas.height * (1 - groundHeight) - this.height;
                 this.vy = 0;
+                this.angle = 0;
                 this.isJumping = false;
             },
             jump() {
@@ -257,41 +260,81 @@
                 this.vy += gravity;
                 this.y += this.vy;
                 
-                const groundY = canvas.height * (1 - groundHeight) - this.size;
+                const groundY = canvas.height * (1 - groundHeight) - this.height;
                 if (this.y >= groundY) {
                     this.y = groundY;
                     this.vy = 0;
                     this.isJumping = false;
+                    this.angle += (0 - this.angle) * 0.2; // Roteer soepel terug naar 0
+                } else {
+                    // Motor kantelt in de lucht (omhoog is naar achter, naar beneden is naar voren)
+                    let targetAngle = this.vy * 0.04; 
+                    this.angle += (targetAngle - this.angle) * 0.15;
+                }
+
+                // Rook particles toevoegen bij de uitlaat (links onderaan de hitbox)
+                if (frameCount % 3 === 0) {
+                    particles.push({
+                        x: this.x,
+                        y: this.y + this.height - 10,
+                        vx: -1 - Math.random() * 2,
+                        vy: -Math.random(),
+                        alpha: 0.6,
+                        size: 3 + Math.random() * 6
+                    });
                 }
             },
             draw() {
-                ctx.font = this.size + 'px Arial';
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'top';
-                ctx.fillText(this.emoji, this.x, this.y);
+                ctx.save();
+                // Verplaats het draaipunt naar het midden van de motor
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                ctx.rotate(this.angle);
+                
+                if (imgMotor.complete && imgMotor.naturalHeight !== 0) {
+                    ctx.drawImage(imgMotor, -this.width / 2, -this.height / 2, this.width, this.height);
+                } else {
+                    // Fallback als motor nog laadt
+                    ctx.fillStyle = "black";
+                    ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+                }
+                ctx.restore();
             }
         };
 
-        let obstacles = [];
-        let spawnTimer = 0;
-        let gameSpeed = 5;
-
-        function spawnObstacle() {
-            const size = 30;
-            const groundY = canvas.height * (1 - groundHeight) - size;
+        function spawnEntities() {
+            const crateSize = 35; // Formaat per Grolsch kratje
+            const stackCount = Math.floor(Math.random() * 3) + 1; // 1, 2 of 3 hoog
+            const groundY = canvas.height * (1 - groundHeight);
+            
+            // Krat toevoegen
             obstacles.push({
                 x: canvas.width + 50,
-                y: groundY,
-                size: size,
-                emoji: '📦',
+                y: groundY - (crateSize * stackCount), // Y van de bovenste krat
+                width: crateSize,
+                height: crateSize * stackCount,
+                stackCount: stackCount,
                 passed: false
             });
+
+            // Af en toe een flesje spawnen (niet tegelijk op dezelfde x als een krat om het eerlijk te houden, of juist hoog in de lucht)
+            if (Math.random() > 0.6) {
+                bottles.push({
+                    x: canvas.width + 200 + Math.random() * 150,
+                    baseY: groundY - 120 - Math.random() * 80, // Hoog in de lucht
+                    y: 0,
+                    width: 15,
+                    height: 45,
+                    active: true
+                });
+            }
         }
 
         function resetGame() {
             score = 0;
-            gameSpeed = 5;
+            gameSpeed = 5.5;
             obstacles = [];
+            bottles = [];
+            particles = [];
             spawnTimer = 0;
             scoreEl.textContent = score;
             player.init();
@@ -309,21 +352,32 @@
             finalScoreEl.textContent = score;
             if (score > highscore) {
                 highscore = score;
-                localStorage.setItem('zc_highscore', highscore);
+                localStorage.setItem('zc_highscore_v3', highscore);
                 highscoreEl.textContent = highscore;
             }
             gameOverScreen.style.display = 'flex';
         }
 
+        function checkCollision(r1, r2, padding = 5) {
+            return (
+                r1.x < r2.x + r2.width - padding &&
+                r1.x + r1.width - padding > r2.x &&
+                r1.y < r2.y + r2.height - padding &&
+                r1.y + r1.height - padding > r2.y
+            );
+        }
+
         function loop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            frameCount++;
 
+            // Achtergrond tekenen
             const horizon = canvas.height * (1 - groundHeight);
             ctx.fillStyle = '#87CEEB'; 
             ctx.fillRect(0, 0, canvas.width, horizon);
             ctx.fillStyle = '#dfb76c'; 
             ctx.fillRect(0, horizon, canvas.width, canvas.height * groundHeight);
-
+            
             ctx.strokeStyle = '#332314';
             ctx.lineWidth = 4;
             ctx.beginPath();
@@ -333,42 +387,99 @@
 
             if (gameState === 'PLAYING') {
                 player.update();
+                gameSpeed += 0.002;
 
                 spawnTimer++;
-                const spawnInterval = Math.max(60, 100 - Math.floor(gameSpeed * 2));
+                const spawnInterval = Math.max(50, 100 - Math.floor(gameSpeed * 3));
                 if (spawnTimer > spawnInterval) {
-                    spawnObstacle();
+                    spawnEntities();
                     spawnTimer = 0;
                 }
 
-                gameSpeed += 0.002;
+                // Teken & Update Particles (Rook)
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    let p = particles[i];
+                    p.x += p.vx - gameSpeed; // Beweegt mee met de achtergrond
+                    p.y += p.vy;
+                    p.alpha -= 0.02;
+                    p.size += 0.1;
 
+                    if (p.alpha <= 0) {
+                        particles.splice(i, 1);
+                    } else {
+                        ctx.save();
+                        ctx.globalAlpha = Math.max(0, p.alpha);
+                        ctx.fillStyle = '#888';
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                }
+
+                // Teken & Update Flesjes (Collectibles)
+                for (let i = bottles.length - 1; i >= 0; i--) {
+                    let bottle = bottles[i];
+                    bottle.x -= gameSpeed;
+                    
+                    // Zweef animatie met sinus
+                    bottle.y = bottle.baseY + Math.sin(frameCount * 0.1 + i) * 10;
+
+                    if (bottle.active) {
+                        if (imgBottle.complete && imgBottle.naturalHeight !== 0) {
+                            ctx.drawImage(imgBottle, bottle.x, bottle.y, bottle.width, bottle.height);
+                        } else {
+                            ctx.fillStyle = "green";
+                            ctx.fillRect(bottle.x, bottle.y, bottle.width, bottle.height);
+                        }
+
+                        // Botsing met flesje = pakken
+                        if (checkCollision(player, bottle, -5)) {
+                            bottle.active = false; // Flesje is gepakt
+                            score += 5;
+                            scoreEl.textContent = score;
+                            
+                            // Teken even een +5 tekst (visuele feedback)
+                            ctx.fillStyle = '#5cb85c';
+                            ctx.font = '24px Arial Black';
+                            ctx.fillText('+5', player.x + 30, player.y - 20);
+                        }
+                    }
+
+                    if (bottle.x < -50) bottles.splice(i, 1);
+                }
+
+                // Teken & Update Kratten (Obstakels)
                 for (let i = obstacles.length - 1; i >= 0; i--) {
                     let obs = obstacles[i];
                     obs.x -= gameSpeed;
 
-                    ctx.font = obs.size + 'px Arial';
-                    ctx.fillText(obs.emoji, obs.x, obs.y);
+                    // Teken gestapelde kratten
+                    let crateHeight = obs.height / obs.stackCount;
+                    for(let j = 0; j < obs.stackCount; j++) {
+                        let drawY = obs.y + (j * crateHeight);
+                        if (imgCrate.complete && imgCrate.naturalHeight !== 0) {
+                            ctx.drawImage(imgCrate, obs.x, drawY, obs.width, crateHeight);
+                        } else {
+                            ctx.fillStyle = "brown";
+                            ctx.fillRect(obs.x, drawY, obs.width, crateHeight);
+                            ctx.strokeRect(obs.x, drawY, obs.width, crateHeight);
+                        }
+                    }
 
-                    const padding = 6;
-                    if (
-                        player.x < obs.x + obs.size - padding &&
-                        player.x + player.size - padding > obs.x &&
-                        player.y < obs.y + obs.size - padding &&
-                        player.y + player.size - padding > obs.y
-                    ) {
+                    // Botsing check
+                    if (checkCollision(player, obs, 8)) {
                         triggerGameOver();
                     }
 
-                    if (!obs.passed && obs.x < player.x) {
+                    // Punt erbij
+                    if (!obs.passed && obs.x + obs.width < player.x) {
                         obs.passed = true;
                         score++;
                         scoreEl.textContent = score;
                     }
 
-                    if (obs.x < -50) {
-                        obstacles.splice(i, 1);
-                    }
+                    if (obs.x < -100) obstacles.splice(i, 1);
                 }
             }
 
@@ -376,28 +487,17 @@
             requestAnimationFrame(loop);
         }
 
+        // Controls
         window.addEventListener('touchstart', (e) => {
-            if (gameState === 'PLAYING') {
-                player.jump();
-                e.preventDefault();
-            }
+            if (gameState === 'PLAYING') player.jump();
         }, { passive: false });
 
         window.addEventListener('mousedown', () => {
-            if (gameState === 'PLAYING') {
-                player.jump();
-            }
+            if (gameState === 'PLAYING') player.jump();
         });
 
-        startBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            startGame();
-        });
-
-        restartBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            startGame();
-        });
+        startBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+        restartBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
 
         player.init();
         requestAnimationFrame(loop);
@@ -405,3 +505,4 @@
     </script>
 </body>
 </html>
+
