@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rij-Spel: Zwarte Cross Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            font-family: 'Arial Black', sans-serif;
+            background-color: #f4ebd0; 
+            color: #332314;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 10px;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 85vh;
+            background-color: #fff;
+            border: 4px solid #332314;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 0 #332314;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 70%, #dfb76c 70%, #dfb76c 100%);
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 15px;
+        }
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border: 2px solid #332314;
+            border-radius: 6px;
+            box-shadow: 2px 2px 0 #332314;
+        }
+        #screen-start, #screen-gameover {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(244, 235, 208, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            text-align: center;
+            z-index: 10;
+        }
+        #screen-gameover {
+            display: none;
+        }
+        h1 {
+            font-size: 28px;
+            color: #d9534f;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 0 #332314;
+            -webkit-text-stroke: 1px #332314;
+        }
+        p {
+            font-size: 14px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .btn {
+            background-color: #5cb85c;
+            color: white;
+            border: 3px solid #332314;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-family: 'Arial Black', sans-serif;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #332314;
+            pointer-events: auto;
+            text-transform: uppercase;
+        }
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0px 0 #332314;
+        }
+        .beer-container {
+            margin-top: 25px;
+            background: #fff;
+            border: 3px solid #332314;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 3px 3px 0 #332314;
+            pointer-events: auto;
+            max-width: 90%;
+        }
+        .beer-text {
+            font-size: 12px;
+            color: #332314;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        .beer-btn {
+            display: inline-block;
+            background-color: #f0ad4e;
+            color: #332314;
+            text-decoration: none;
+            border: 2px solid #332314;
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 6px;
+            font-weight: bold;
+            box-shadow: 0 3px 0 #332314;
+        }
+        .beer-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #332314;
+        }
+        .hint {
+            font-size: 11px;
+            color: #666;
+            margin-top: 8px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-layer">
+            <div class="score-board">
+                <div>PUNTEN: <span id="score">0</span></div>
+                <div>RECORDRYDER: <span id="highscore">0</span></div>
+            </div>
+        </div>
+
+        <div id="screen-start">
+            <h1>RIJ SPEL</h1>
+            <p>Spring met je motor over de bierkratten heen! Tik op het scherm om te springen.</p>
+            <button class="btn" id="start-btn">GAS EROP!</button>
+        </div>
+
+        <div id="screen-gameover">
+            <h1>CRASH!</h1>
+            <p>Je haalde <span id="final-score">0</span> kratten!</p>
+            <button class="btn" id="restart-btn">NOG EEN KEER</button>
+
+            <div class="beer-container">
+                <p class="beer-text">"Highscore gehaald? Sla overmorgen die rij over en gun de maker een koud biertje." 🍻</p>
+                <!-- Dynamische Tikkie link op basis van GET argument -->
+                <a href="#" id="beer-link" target="_blank" class="beer-btn">👉 TRAKTEER EEN BIERTJE 👈</a>
+                <div class="hint">(Opent in nieuw tabblad)</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DYNAMISCHE TIKKIE LOGICA (GET ARGUMENTEN) ---
+        const tikkieLinks = {
+            'shirt': 'https://tikkie.me/YOUR_SHIRT_LINK_HERE',     // Vervang met Tikkie link voor T-shirt
+            'sticker': 'https://tikkie.me/YOUR_STICKER_LINK_HERE' // Vervang met Tikkie link voor Stickers
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const source = urlParams.get('source') || 'shirt'; // Standaard 'shirt' als er niks staat
+        
+        const beerLinkEl = document.getElementById('beer-link');
+        if (tikkieLinks[source]) {
+            beerLinkEl.href = tikkieLinks[source];
+        } else {
+            beerLinkEl.href = tikkieLinks['shirt']; // Fallback
+        }
+
+        // --- SERVICE WORKER REGISTRATIE (OFFLINE CACHING) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker actief voor offline gebruik!', reg.scope))
+                    .catch(err => console.error('Service Worker registratie mislukt:', err));
+            });
+        }
+
+        // --- GAME LOGIC ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const startScreen = document.getElementById('screen-start');
+        const gameOverScreen = document.getElementById('screen-gameover');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const scoreEl = document.getElementById('score');
+        const highscoreEl = document.getElementById('highscore');
+        const finalScoreEl = document.getElementById('final-score');
+
+        function resize() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        resize();
+
+        let gameState = 'START'; 
+        let score = 0;
+        let highscore = localStorage.getItem('zc_highscore') || 0;
+        highscoreEl.textContent = highscore;
+
+        const gravity = 0.6;
+        const groundHeight = 0.3; 
+
+        const player = {
+            x: 50,
+            y: 0,
+            vy: 0,
+            size: 40,
+            isJumping: false,
+            emoji: '🏍️',
+            init() {
+                this.y = canvas.height * (1 - groundHeight) - this.size;
+                this.vy = 0;
+                this.isJumping = false;
+            },
+            jump() {
+                if (!this.isJumping) {
+                    this.vy = -12;
+                    this.isJumping = true;
+                }
+            },
+            update() {
+                this.vy += gravity;
+                this.y += this.vy;
+                
+                const groundY = canvas.height * (1 - groundHeight) - this.size;
+                if (this.y >= groundY) {
+                    this.y = groundY;
+                    this.vy = 0;
+                    this.isJumping = false;
+                }
+            },
+            draw() {
+                ctx.font = this.size + 'px Arial';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(this.emoji, this.x, this.y);
+            }
+        };
+
+        let obstacles = [];
+        let spawnTimer = 0;
+        let gameSpeed = 5;
+
+        function spawnObstacle() {
+            const size = 30;
+            const groundY = canvas.height * (1 - groundHeight) - size;
+            obstacles.push({
+                x: canvas.width + 50,
+                y: groundY,
+                size: size,
+                emoji: '📦',
+                passed: false
+            });
+        }
+
+        function resetGame() {
+            score = 0;
+            gameSpeed = 5;
+            obstacles = [];
+            spawnTimer = 0;
+            scoreEl.textContent = score;
+            player.init();
+        }
+
+        function startGame() {
+            gameState = 'PLAYING';
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            resetGame();
+        }
+
+        function triggerGameOver() {
+            gameState = 'GAMEOVER';
+            finalScoreEl.textContent = score;
+            if (score > highscore) {
+                highscore = score;
+                localStorage.setItem('zc_highscore', highscore);
+                highscoreEl.textContent = highscore;
+            }
+            gameOverScreen.style.display = 'flex';
+        }
+
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const horizon = canvas.height * (1 - groundHeight);
+            ctx.fillStyle = '#87CEEB'; 
+            ctx.fillRect(0, 0, canvas.width, horizon);
+            ctx.fillStyle = '#dfb76c'; 
+            ctx.fillRect(0, horizon, canvas.width, canvas.height * groundHeight);
+
+            ctx.strokeStyle = '#332314';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, horizon);
+            ctx.lineTo(canvas.width, horizon);
+            ctx.stroke();
+
+            if (gameState === 'PLAYING') {
+                player.update();
+
+                spawnTimer++;
+                const spawnInterval = Math.max(60, 100 - Math.floor(gameSpeed * 2));
+                if (spawnTimer > spawnInterval) {
+                    spawnObstacle();
+                    spawnTimer = 0;
+                }
+
+                gameSpeed += 0.002;
+
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    let obs = obstacles[i];
+                    obs.x -= gameSpeed;
+
+                    ctx.font = obs.size + 'px Arial';
+                    ctx.fillText(obs.emoji, obs.x, obs.y);
+
+                    const padding = 6;
+                    if (
+                        player.x < obs.x + obs.size - padding &&
+                        player.x + player.size - padding > obs.x &&
+                        player.y < obs.y + obs.size - padding &&
+                        player.y + player.size - padding > obs.y
+                    ) {
+                        triggerGameOver();
+                    }
+
+                    if (!obs.passed && obs.x < player.x) {
+                        obs.passed = true;
+                        score++;
+                        scoreEl.textContent = score;
+                    }
+
+                    if (obs.x < -50) {
+                        obstacles.splice(i, 1);
+                    }
+                }
+            }
+
+            player.draw();
+            requestAnimationFrame(loop);
+        }
+
+        window.addEventListener('touchstart', (e) => {
+            if (gameState === 'PLAYING') {
+                player.jump();
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        window.addEventListener('mousedown', () => {
+            if (gameState === 'PLAYING') {
+                player.jump();
+            }
+        });
+
+        startBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+
+        restartBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+
+        player.init();
+        requestAnimationFrame(loop);
+        window.addEventListener('resize', resize);
+    </script>
+</body>
+</html>
