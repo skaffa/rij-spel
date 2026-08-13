@@ -1,8 +1,11 @@
-const CACHE_NAME = 'rijspel-zc-v2';
+const CACHE_NAME = 'rijspel-zc-v3'; // Zorg dat je de v3 naam verandert, dan gooit de browser de oude cache weg!
 const ASSETS = [
     './',
     'index.html',
-    'sw.js'
+    'sw.js',
+    'ktm.png',
+    'grolsch.png',
+    'fles.png'
 ];
 
 // Installeer Service Worker en sla bestanden agressief op in de cache
